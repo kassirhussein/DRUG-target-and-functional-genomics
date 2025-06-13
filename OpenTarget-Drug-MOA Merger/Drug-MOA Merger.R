@@ -8,6 +8,8 @@ library(arrow)
 library(dplyr)
 library(tidyverse)
 
+# Make sure to download OPEN TARGET files from https://platform.opentargets.org/downloads
+
 # --- Load Known Drugs Data ---
 
 # Set your folder path (adjust to your own machine)

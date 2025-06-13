@@ -4,7 +4,7 @@ This R script imports the **Experimental Factor Ontology (EFO)** in `.obo` forma
 
 ---
 
-## ?? Script Details
+##  Script Details
 
 - **Script Name:** `EFO_obo_to_txt.R`
 - **Author:** Hussein
@@ -14,7 +14,7 @@ This R script imports the **Experimental Factor Ontology (EFO)** in `.obo` forma
 
 ---
 
-## ?? Requirements
+##  Requirements
 
 - R (>= 4.0.0)
 - Packages:
@@ -33,15 +33,15 @@ install.packages(c("ontologyIndex", "dplyr", "tidyr", "Hmisc"))
 
 ---
 
-## ?? Inputs & Outputs
+##  Inputs & Outputs
 
-### ?? Inputs:
+###  Inputs:
 - The EFO `.obo` file is retrieved directly from:
   ```
   http://www.ebi.ac.uk/efo/efo.obo
   ```
 
-### ?? Outputs (all saved in `./data_efo/`):
+###  Outputs (all saved in `./data_efo/`):
 - `efo_description.txt`  
 - `efo_parental_nodes.txt`  
 - `efo_children_nodes.txt`  
@@ -52,7 +52,7 @@ install.packages(c("ontologyIndex", "dplyr", "tidyr", "Hmisc"))
 
 ---
 
-## ?? Key Functions
+##  Key Functions
 
 The script includes custom logic to:
 - Parse EFO terms and their relationships
@@ -62,7 +62,7 @@ The script includes custom logic to:
 
 ---
 
-## ?? Acknowledgments
+##  Acknowledgments
 
 This script is **adapted in part** from the work of **Dr. Pilar Cacheiro**.  
 Original codebase available at: [https://github.com/pilarcacheiro/Ontologies](https://github.com/pilarcacheiro/Ontologies)
@@ -71,13 +71,13 @@ Specific functions and structure (e.g., `get_parent_nodes`, `get_children_nodes`
 
 ---
 
-## ?? License
+##  License
 
 MIT License (or specify another if needed)
 
 ---
 
-## ?? Contact
+##  Contact
 
 For feedback, questions, or contributions, feel free to open an issue or fork the repo.
 

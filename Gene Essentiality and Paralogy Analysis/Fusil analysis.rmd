@@ -30,9 +30,9 @@ library(writexl)
 
 
 ```{r echo=TRUE, message=FALSE, warning=FALSE}
-#Get a list of the protein coding genes 
+#Get a list of the protein coding genes from https://storage.googleapis.com/public-download-files/hgnc/tsv/tsv/locus_types/gene_with_protein_product.txt
 
-protein_coding_genes <- read_delim("C:/Users/HP-ssd/Desktop/Short term project/protein coding genes/gene_with_protein_product.txt", 
+protein_coding_genes <- read_delim("Your path/gene_with_protein_product.txt", 
                                    delim = "\t", escape_double = FALSE, 
                                    trim_ws = TRUE)
 
@@ -41,13 +41,14 @@ protein_coding_genes_list <- protein_coding_genes$symbol
 
 #Get FUSIL file
 
-fusil_m_gene <-  read_delim("C:/Users/HP-ssd/Desktop/Short term project2/fusil.csv")
+fusil_m_gene <-  read_delim("Your path/Short term project2/fusil.csv")
 
 length(unique(fusil_m_gene$gene_symbol))
 
 #Get a list of Gene Paralogues from biomart
+#I downloed the list locally given BiomMart's occasional error
 
-human_gene_paralogues <- read.csv("C:/Users/HP-ssd/Desktop/Short term project2/paralogues/human_gene_paralogues.csv")
+human_gene_paralogues <- read.csv("C:/Users/HP-ssd/Desktop/Short term project2/paralogues/human_gene_paralogues.csv") 
 
 human_gene_paralogues <- human_gene_paralogues %>%
   select(-1,-2,-4)%>%

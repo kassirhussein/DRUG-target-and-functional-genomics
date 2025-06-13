@@ -1,0 +1,536 @@
+---
+title: "Fusil Analysis Exploring the Viability and Paralogy Datasets"
+author: "Hussein"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+library(tidyverse)
+library(readxl)
+library(writexl)
+
+```
+
+
+## Loading the Necessary Data sets
+
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+#Get a list of the protein coding genes 
+
+protein_coding_genes <- read_delim("C:/Users/HP-ssd/Desktop/Short term project/protein coding genes/gene_with_protein_product.txt", 
+                                   delim = "\t", escape_double = FALSE, 
+                                   trim_ws = TRUE)
+
+protein_coding_genes_list <- protein_coding_genes$symbol
+
+
+#Get FUSIL file
+
+fusil_m_gene <-  read_delim("C:/Users/HP-ssd/Desktop/Short term project2/fusil.csv")
+
+length(unique(fusil_m_gene$gene_symbol))
+
+#Get a list of Gene Paralogues from biomart
+
+human_gene_paralogues <- read.csv("C:/Users/HP-ssd/Desktop/Short term project2/paralogues/human_gene_paralogues.csv")
+
+human_gene_paralogues <- human_gene_paralogues %>%
+  select(-1,-2,-4)%>%
+  rename(gene_symbol = external_gene_name )
+
+length(unique(human_gene_paralogues$gene_symbol))
+
+#Merge the FUSIL file with paralogues dataset
+
+paralogue_fusil <- human_gene_paralogues %>%
+  left_join(fusil_m_gene)%>%
+  select(-6, -7) %>%
+  mutate(hsapiens_paralog_associated_gene_name = na_if(hsapiens_paralog_associated_gene_name,"")) %>%
+  distinct()
+
+length(unique(paralogue_fusil$gene_symbol))
+
+```
+
+
+## Descriptive Analysis
+
+
+### Claculating Percentage of Genes in Each FUSIL bin
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+# Gene Count (Percentage) distribution across FUSIL bins -----------------------------
+
+
+gene_counts <- fusil_m_gene %>%
+  count(fusil) %>%
+  mutate(percentage = (n/sum(n)*100)) %>%
+  mutate(total_gene_count =n)
+
+
+gene_counts$fusil <- factor(gene_counts$fusil, 
+                                         levels = c("CL", "DL", "SV", "VP", "VnP"  ))
+
+ggplot(gene_counts, aes(x= fusil, y=percentage, fill = fusil))+
+  geom_bar(stat = "identity", position = "dodge")+
+  labs(y = "Percentage of Genes", x = "FUSIL bin", title = "Percentages of Genes by FUSIL Category") +
+  theme_minimal()+
+  scale_fill_manual(
+    values = c(
+      "CL" = "#E41A1C",
+      "DL" = "#377EB8",
+      "SV" = "#4DAF4A",
+      "VnP" = "#984EA3",
+      "VP" = "#FF7F00"
+    ))
+```
+
+
+
+### Comparing Gene counts per FUSIL between those with and without paralogues
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+#Count of genes with paralogues and without paralogues per FUSIL bin
+
+
+na_paralogue_count <- paralogue_fusil %>%
+  group_by(gene_symbol) %>%
+  filter(all(is.na(hsapiens_paralog_perc_id))) %>%
+  ungroup() %>%
+  distinct() %>%
+  count(fusil) %>%
+  mutate(gene_with_no_paralogue_count =n)
+
+sum(na_paralogue_count$n)
+
+gene_with_paralogue_count <- paralogue_fusil %>%
+  group_by(gene_symbol) %>%
+  filter(!all(is.na(hsapiens_paralog_perc_id))) %>%
+  ungroup() %>%
+  distinct() %>%
+  na.omit() %>%
+  select(1,6) %>%
+  distinct()%>%
+  count(fusil) %>%
+  mutate(gene_with_paralogue_count =n)
+  
+
+sum(gene_with_paralogue_count$n)
+
+
+Summary_gene_count <- gene_counts %>%
+  left_join(na_paralogue_count, by = "fusil") %>%
+  left_join(gene_with_paralogue_count, by = "fusil") %>%
+  select(1,4,6,8)
+
+
+
+Summary_gene_count_long <- Summary_gene_count %>%
+  pivot_longer(cols = c(gene_with_paralogue_count, gene_with_no_paralogue_count),
+               names_to = "ParalogueStatus",
+               values_to = "Count")
+
+
+
+Summary_gene_count_long$fusil <- factor(Summary_gene_count_long$fusil, 
+                            levels = c("CL", "DL", "SV", "VP", "VnP" ))
+
+df_totals <- Summary_gene_count %>%
+  select(fusil, total_gene_count) %>%
+  distinct()
+
+ggplot(Summary_gene_count_long, aes(x= fusil, y= Count, fill = ParalogueStatus))+
+  geom_bar(stat = "identity") +
+  geom_text(data = df_totals, aes(x = fusil, y = total_gene_count, label = total_gene_count),
+            vjust = -0.5, inherit.aes = FALSE) +
+  labs(
+    title = "Gene Counts by Paralogue Presence",
+    x = "FUSIL bin", y = "Gene Count"
+  )
+
+
+
+```
+
+
+
+### Calculatign the Average Number of Paralogues per Gene for each FUISL BIN Across Similarity Thresholds
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+paralogue_fusil_filtered <- paralogue_fusil %>%
+  na.omit() %>% # remove null values
+  filter(hsapiens_paralog_associated_gene_name %in% protein_coding_genes_list) # filter for only protein coding
+
+
+length(unique(paralogue_fusil_filtered$gene_symbol))
+
+
+
+paralogue_fusil_filtered$fusil <- factor(paralogue_fusil_filtered$fusil, 
+                                         levels = c("VnP", "VP", "SV", "DL","CL"  )) # keep categories in order
+
+thresholds <- c(30,50,70)     # Define thresholds
+
+
+fusil_cat_thresh <-  lapply(thresholds, function(thresh) {
+  paralogue_fusil_filtered %>%
+    filter(hsapiens_paralog_perc_id >= thresh) %>%
+    group_by(gene_symbol, fusil) %>%
+    tally(name = "Paralogues_above_threshold") %>%
+    mutate(Threshold =thresh)
+}) %>%
+  bind_rows()
+
+length(unique(fusil_cat_thresh$gene_symbol))
+
+
+summary_thresh <- fusil_cat_thresh %>%
+  group_by(fusil, Threshold) %>%
+  summarise(avg_paralogues = mean(Paralogues_above_threshold), .groups= "drop")
+
+summary_thresh$fusil <- factor(summary_thresh$fusil, 
+                            levels = c("CL", "DL", "SV", "VP", "VnP"  ))
+
+ggplot(summary_thresh, aes(x= factor(Threshold), y=avg_paralogues, fill = fusil))+
+  geom_bar(stat = "identity", position = "dodge")+
+  facet_wrap(~Threshold)+
+  labs(x = "Homology Threshold (%)", y = "Average Number of Paralogues", title = "Paralogue Count by FUSIL Category") +
+  theme_minimal()+
+  theme(axis.text.x = element_blank())+
+  scale_fill_manual(
+    values = c(
+      "CL" = "#E41A1C",
+      "DL" = "#377EB8",
+      "SV" = "#4DAF4A",
+      "VnP" = "#984EA3",
+      "VP" = "#FF7F00"
+    ))
+
+### Plotting to see the paralogues counts across % similarity
+
+paralogue_fusil_filtered$fusil <- factor(paralogue_fusil_filtered$fusil, 
+                                         levels = c("CL", "DL", "SV", "VP", "VnP" ))
+                                         
+
+ggplot(paralogue_fusil_filtered, aes( x= hsapiens_paralog_perc_id, fill = fusil ))+
+  geom_density(alpha = 0.5) +
+  labs(title = "Distribution of Paralogue across Similarity thresholds by FUSIL Category",
+       x = "Similarity Score",
+       y = "Density")+
+  theme_minimal()
+
+
+```
+
+
+
+### Generating a binary matrix of paralogue presence while accounting for protein-coding genes
+
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+# # Binary data for paralogue presence among FUSIL Categories --------
+
+
+library(stringr)
+
+has_paralogues_above_thresholds <- function(gene, paralogue_perc_id, pc_genes, threshold) {
+  
+  if (!(gene %in% pc_genes)) {
+    return(0)
+  }
+  
+  if(is.na(paralogue_perc_id) || paralogue_perc_id == "") {
+    return(0)
+  }
+  
+  perc <- as.numeric(str_extract(paralogue_perc_id, "\\d+\\.?\\d*")[[1]])
+  
+  if(!is.na(perc) && perc >= threshold ) {
+    return(1)
+  } else {
+    return(0)
+  }
+}
+
+
+thresholds <- c(30, 50, 70)
+
+pc_genes <- protein_coding_genes$symbol
+
+
+binary_thresh <- lapply(thresholds, function (thresh) {
+ 
+  binary_column <- mapply(has_paralogues_above_thresholds,
+                          gene = paralogue_fusil$gene_symbol,
+                         paralogue_perc_id = paralogue_fusil$hsapiens_paralog_perc_id,
+                         MoreArgs = list(pc_genes = pc_genes, threshold = thresh)
+                         )
+  col_name <- paste0("Has_paralogue_over_", thresh)
+  setNames(data.frame(binary_column), col_name)
+}
+  
+  )
+
+binary_columns_df <- bind_cols(binary_thresh)
+
+fusil_cat_thresh_2 <- bind_cols(paralogue_fusil, binary_columns_df)
+
+length(unique(fusil_cat_thresh_2$gene_symbol))
+
+#write.csv(fusil_cat_thresh_2, "C:/Users/HP-ssd/Desktop/fusil_cat_thresh_3.csv")
+
+binary_summary_per_gene <- fusil_cat_thresh_2 %>%
+  select(gene_symbol, fusil, starts_with("Has_paralogue_over_")) %>%
+  group_by(gene_symbol, fusil) %>%
+  summarise(across(starts_with("Has_paralogue_over_"), max, na.rm = TRUE), .groups = "drop")
+
+
+#write.csv(binary_summary_per_gene, "C:/Users/HP-ssd/Desktop/binary_summary_per_gene.csv")
+
+count_summary_per_gene <- fusil_cat_thresh_2 %>%
+  select(gene_symbol,fusil, starts_with("Has_paralogue_over_")) %>%
+  group_by(gene_symbol, fusil) %>%
+  summarise(across(starts_with("Has_paralogue_over_"), sum, na.rm = TRUE), .groups = "drop") %>%
+  rename_with(~ gsub("Has", "Count", .x), starts_with("Has"))
+
+
+
+
+#Visualise the data
+
+binary_summary_per_gene_long <- binary_summary_per_gene %>%
+  pivot_longer( cols = starts_with("Has_paralogue_over_"),
+                names_to = "Threshold",
+                values_to = "Has_Paralogue"
+)
+
+
+binary_summary_per_gene_long <- binary_summary_per_gene_long %>%
+  mutate(Threshold = as.numeric(gsub("Has_paralogue_over_", "", Threshold)))
+
+
+plot_binary_summary_per_gene_long <- binary_summary_per_gene_long %>%
+  group_by(fusil, Threshold, Has_Paralogue ) %>%
+  summarise(Count=n(), , .groups = "drop") %>%
+  group_by(fusil, Threshold) %>%
+  mutate(Proportions = Count/sum(Count))
+
+ggplot(plot_binary_summary_per_gene_long, aes( x = factor(Threshold), y = Proportions, fill = factor(Has_Paralogue)))+
+  geom_col(position = "dodge") +
+  facet_wrap(~ fusil)+
+  labs(
+    title = "Proportion of Genes With and Without Paralogue by FUSIL Class",
+    x = "Similarity Threshold (%)",
+    y = "Proportion of Genes",
+    fill = "Has Paralogue"
+  ) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = c("0" = "#FF9999", "1" = "#66CC99"),
+                    labels = c("No", "Yes")) +
+  theme_minimal(base_size = 14)
+
+
+
+ggplot(plot_binary_summary_per_gene_long, aes( x = factor(fusil), y = Proportions, fill = factor(Has_Paralogue)))+
+  geom_col(position = "dodge") +
+  facet_wrap(~ Threshold)+
+  labs(
+    title = "Proportion of Genes With and Without Paralogue by FUSIL Class",
+    x = "FUSIL bin",
+    y = "Proportion of Genes",
+    fill = "Has Paralogue"
+  ) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = c("0" = "#FF9945", "1" = "#690C99"),
+                    labels = c("No", "Yes")) +
+  theme_minimal(base_size = 14)
+
+
+```
+
+
+
+### Comparing the FUSIL bin of Query Genes and their Paralogues
+#### Are they in the same category?
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+#Create a matrix of fusil categories for genes and paralogues
+
+Fusil_genes <- fusil_m_gene %>%
+  select(-1,-2)
+
+Fusil_genes_paralogues <- human_gene_paralogues %>%
+  left_join( Fusil_genes, by = c( "hsapiens_paralog_associated_gene_name" = "gene_symbol"))%>%
+  filter(hsapiens_paralog_associated_gene_name %in% protein_coding_genes_list) %>%
+  rename("fusil_paralogue" = "fusil")
+
+Fusil_genes_paralogues <- Fusil_genes_paralogues %>%
+  left_join(Fusil_genes, by = c( "gene_symbol" = "gene_symbol"))
+
+Fusil_genes_paralogues <- Fusil_genes_paralogues%>%
+  relocate(fusil, .after = "gene_symbol") %>%
+  relocate(fusil_paralogue, .after = "hsapiens_paralog_associated_gene_name") %>%
+  na.omit()
+
+
+
+#ploting
+
+library(ggalluvial) # For Sankey-like alluvial plots
+library(reshape2) # for heatmap
+
+df_fusil <- Fusil_genes_paralogues %>%
+  count(fusil)
+
+sum(df_fusil$n)
+
+fusil_table <- Fusil_genes_paralogues %>%
+  count(fusil, fusil_paralogue) %>%
+  left_join(df_fusil, by = c( "fusil" = "fusil")) %>%
+  mutate(percentage = n.x*100/ n.y)
+
+sum(fusil_table$n)
+
+ggplot(fusil_table, aes(axis1 = fusil, axis2 = fusil_paralogue, y = percentage))+
+  geom_alluvium(aes(fill = fusil),width = 0.2, show.legend = FALSE)+
+  geom_stratum(width = 0.2)+
+  geom_text(stat = "stratum", aes(label = after_stat(stratum)))+
+  scale_x_discrete(limits = c("Gene FUSIL", "Paralog FUSIL"), expand = c(.01, .01)) +
+  scale_fill_manual(
+    values = c(
+      "CL" = "#E41A1C",
+      "DL" = "#377EB8",
+      "SV" = "#4DAF4A",
+      "VnP" = "#984EA3",
+      "VP" = "#FF7F00"
+    ))+
+  theme_minimal() +
+  theme(axis.title.y = element_blank(), axis.text.y = element_blank())+
+  ggtitle("FUSIL Category Flow: Gene → Paralog")+
+  geom_text(aes(label = paste0(round(percentage, 1), "%")),
+            stat = "alluvium",
+            nudge_x = 0.2,
+            size = 3,
+            color = "black")
+```
+
+
+### Integrating MCRA Data
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+
+# FUSIL gene with MCRA --------------------------------
+
+fusil_m_gene_list <- unique(fusil_m_gene$gene_symbol)
+
+library(biomaRt)
+
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+
+attributes_human <- listAttributes(human)
+
+
+fusil_gene_mcra <- getBM(attributes = c("external_gene_name",
+                                        "hsapiens_paralog_subtype"),
+                               filters = "external_gene_name",
+                               values = fusil_m_gene_list,
+                               mart = human)
+
+
+fusil_gene_mcra_df <- fusil_gene_mcra %>%
+  filter(!(hsapiens_paralog_subtype == ""))
+
+fusil_gene_mcra_df2 <- fusil_m_gene %>%
+  left_join(fusil_gene_mcra_df, by = c ("gene_symbol" ="external_gene_name" )) %>%
+  dplyr::select(-1,-2) %>%
+  na.omit()
+
+
+count_mcra_fusil <- fusil_gene_mcra_df2 %>%
+  count(hsapiens_paralog_subtype)
+
+broad_subtypes <- c("Bilateria", "Chordata", "Gnathostomata",
+                    "Opisthokonta", "Vertebrata" )
+
+
+mcra_df_fusil <- fusil_gene_mcra_df2  %>%
+  filter(hsapiens_paralog_subtype %in% broad_subtypes) %>%
+  count(fusil)
+
+
+mcra_fusil <- fusil_gene_mcra_df2 %>%
+  filter(hsapiens_paralog_subtype %in% broad_subtypes) %>%
+  group_by(fusil, hsapiens_paralog_subtype) %>%
+  tally() %>%
+  left_join(mcra_df_fusil, by =c ("fusil" ="fusil")) %>%
+  mutate(percentage = (n.x/n.y)*100)
+
+
+mcra_fusil$hsapiens_paralog_subtype <-factor(mcra_fusil$hsapiens_paralog_subtype, 
+                                             levels = c ("Opisthokonta" ,"Bilateria" ,"Chordata","Vertebrata", "Gnathostomata"))
+
+mcra_fusil$fusil <- factor(mcra_fusil$fusil,
+                           levels = c("CL", "DL", "SV", "VP", "VnP" ))
+
+
+
+ggplot(mcra_fusil, aes( x = factor (hsapiens_paralog_subtype), y = percentage, fill = fusil))+
+  geom_col(position = "dodge") +
+  labs(
+    title = "Gene MCRA subtype distribution by FUSIL Class",
+    y = "Percentage of Genes",
+    x = "MCRA Subtype Group",
+    fill = "Fusil"
+  ) +
+  theme_minimal(base_size = 14) +
+  scale_fill_manual(
+    values = c(
+      "CL" = "#E41A1C",
+      "DL" = "#377EB8",
+      "SV" = "#4DAF4A",
+      "VnP" = "#984EA3",
+      "VP" = "#FF7F00"
+    ))
+
+
+
+ggplot(mcra_fusil, aes( x = fusil, y = percentage, fill = hsapiens_paralog_subtype))+
+  geom_col(position = "dodge") +
+  labs(
+    title = "FUSIL Gene distribution by MCRA subtype",
+    y = "Percentage of Genes",
+    x = "FUSIL bin",
+    fill = "MCRA Subtype"
+  ) +
+  theme_minimal(base_size = 14) 
+
+```
+
+

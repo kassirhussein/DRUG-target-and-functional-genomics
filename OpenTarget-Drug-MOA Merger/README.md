@@ -6,6 +6,7 @@ This R script merges known drug data with mechanism of action (MOA) information 
 
 - R
 - Libraries: `arrow`, `dplyr`, `tidyverse`
+- Data from OPEN TARGET , can be accessed on ( https://platform.opentargets.org/downloads)
 
 ## Usage
 
